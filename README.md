@@ -9,6 +9,7 @@ Live preview of markdown files with first-class Mermaid diagram support, powered
 - Live preview with auto-reload on save
 - Mermaid diagram rendering
 - **Multi-file support** - track and switch between multiple markdown files
+- **Graceful add failures** - if the mdmaid server rejects a file, the current preview/session stays alive
 - **File picker** - Telescope integration with fallback to vim.ui.select
 - **Session management** - each Neovim instance gets its own server
 - **Dynamic port allocation** - no port conflicts between sessions

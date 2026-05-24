@@ -1,5 +1,4 @@
 local server = require("mdmaid.server")
-local session = require("mdmaid.session")
 
 local M = {}
 
@@ -76,7 +75,7 @@ function M.telescope_picker(files)
         map("i", "<C-d>", function()
           local selection = action_state.get_selected_entry()
           if selection then
-            session.remove_file(selection.value)
+            server.remove_file(selection.value)
             vim.notify("Removed: " .. vim.fn.fnamemodify(selection.value, ":t"), vim.log.levels.INFO)
             -- Refresh picker
             actions.close(prompt_bufnr)
@@ -143,7 +142,7 @@ function M.remove_current()
     return
   end
 
-  session.remove_file(file)
+  server.remove_file(file)
   vim.notify("Removed: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
 end
 

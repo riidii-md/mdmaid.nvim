@@ -54,18 +54,23 @@ end
 ---Send command to server via HTTP API
 ---@param action string
 ---@param file string|nil
-local function send_api_command(action, file)
+---@param on_success? fun()
+---@param on_error? fun(message: string)
+local function send_api_command(action, file, on_success, on_error)
   if not M.port then
+    if on_error then
+      on_error("server not ready")
+    end
     return
   end
 
   local url = string.format("http://localhost:%d/api/%s", M.port, action)
 
-  if action == "add" and file then
-    -- Use curl for POST
+  if file then
     vim.fn.jobstart({
       "curl",
-      "-s",
+      "-sS",
+      "-f",
       "-X",
       "POST",
       "-H",
@@ -73,7 +78,31 @@ local function send_api_command(action, file)
       "-d",
       vim.json.encode({ file = file }),
       url,
-    }, { detach = true })
+    }, {
+      on_stderr = function(_, data, _)
+        if data and on_error then
+          local message = table.concat(vim.tbl_filter(function(line)
+            return line and line ~= ""
+          end, data), "\n")
+          if message ~= "" then
+            vim.schedule(function()
+              on_error(message)
+            end)
+          end
+        end
+      end,
+      on_exit = function(_, code, _)
+        vim.schedule(function()
+          if code == 0 then
+            if on_success then
+              on_success()
+            end
+          elseif on_error then
+            on_error(string.format("mdmaid API %s failed for %s", action, vim.fn.fnamemodify(file, ":t")))
+          end
+        end)
+      end,
+    })
   end
 end
 
@@ -199,10 +228,28 @@ end
 ---@param file string
 function M.add_file(file)
   local abs_path = vim.fn.fnamemodify(file, ":p")
-  session.add_file(abs_path)
 
   if M.is_running() then
-    send_api_command("add", abs_path)
+    send_api_command("add", abs_path, function()
+      session.add_file(abs_path)
+    end, function(message)
+      vim.notify(message, vim.log.levels.WARN)
+    end)
+  else
+    session.add_file(abs_path)
+  end
+end
+
+---Remove a file from the server and session
+---@param file string
+function M.remove_file(file)
+  local abs_path = vim.fn.fnamemodify(file, ":p")
+  session.remove_file(abs_path)
+
+  if M.is_running() then
+    send_api_command("remove", abs_path, nil, function(message)
+      vim.notify(message, vim.log.levels.WARN)
+    end)
   end
 end
 
@@ -210,11 +257,18 @@ end
 ---@param file string
 function M.switch_file(file)
   local abs_path = vim.fn.fnamemodify(file, ":p")
-  session.set_current_file(abs_path)
 
   if M.is_running() then
-    -- For switch, we use the add endpoint (server will switch if file exists)
-    send_api_command("add", abs_path)
+    -- The server validates/render-checks before accepting the file. Only update
+    -- the local session after the API succeeds so a bad file does not poison
+    -- this Neovim instance or make the browser preview look dead.
+    send_api_command("add", abs_path, function()
+      session.set_current_file(abs_path)
+    end, function(message)
+      vim.notify(message, vim.log.levels.WARN)
+    end)
+  else
+    session.set_current_file(abs_path)
   end
 end
 
