@@ -1,134 +1,108 @@
 local config = require("mdmaid.config")
-local server = require("mdmaid.server")
+local desk = require("mdmaid.desk")
+local live = require("mdmaid.live")
+local terminal = require("mdmaid.terminal")
+local M = { browser_opened = false }
+local latest_open = 0
 
-local M = {}
-
----@type boolean
-M.browser_opened = false
-
----Get the command to open a URL in the browser
----@param url string
----@return string[]
-local function get_open_command(url)
-  local opts = config.get()
-
-  -- User specified browser
-  if opts.preview.browser then
-    return { opts.preview.browser, url }
+local function open_command(url)
+  local browser = config.get().preview.browser
+  if browser then
+    local cmd = type(browser) == "table" and vim.deepcopy(browser) or { browser }
+    table.insert(cmd, url)
+    return cmd
   end
-
-  -- System default
-  local sysname = vim.loop.os_uname().sysname
-  if sysname == "Darwin" then
-    return { "open", url }
-  elseif sysname == "Linux" then
-    return { "xdg-open", url }
-  elseif sysname == "Windows_NT" then
-    return { "cmd", "/c", "start", url }
-  end
-
-  return { "open", url }
+  local sysname = (vim.uv or vim.loop).os_uname().sysname
+  if sysname == "Darwin" then return { "open", url }
+  elseif sysname == "Windows_NT" then return { "rundll32", "url.dll,FileProtocolHandler", url } end
+  return { "xdg-open", url }
 end
 
----Open browser to the preview URL
----@param url? string
 function M.open_browser(url)
-  url = url or server.get_url()
-
-  if not server.port then
-    vim.notify("Server not ready yet", vim.log.levels.WARN)
-    return
-  end
-
-  local cmd = get_open_command(url)
-
-  vim.fn.jobstart(cmd, {
+  if not url then return M.web() end
+  local ok, job = pcall(vim.fn.jobstart, open_command(url), {
     detach = true,
-    on_exit = function(_, code, _)
+    on_exit = function(_, code)
       if code ~= 0 then
         vim.schedule(function()
-          vim.notify("Failed to open browser", vim.log.levels.WARN)
+          M.browser_opened = false
+          vim.notify("Failed to open mdmaid.desk in browser", vim.log.levels.WARN)
         end)
       end
     end,
   })
-
-  M.browser_opened = true
+  M.browser_opened = ok and job > 0
+  if not M.browser_opened then vim.notify("Failed to launch browser", vim.log.levels.WARN) end
 end
 
----Start preview (server + browser)
----@param file? string
-function M.start(file)
-  local opts = config.get()
-
-  -- Start server if not running
-  if not server.is_running() then
-    local ok = server.start(file)
-    if not ok then
-      return
-    end
-
-    -- Wait for port to be assigned, then open browser
-    if opts.preview.open_browser then
-      -- Poll until port is available
-      local attempts = 0
-      local timer = vim.loop.new_timer()
-      timer:start(
-        100,
-        100,
-        vim.schedule_wrap(function()
-          attempts = attempts + 1
-          if server.port then
-            timer:stop()
-            timer:close()
-            M.open_browser()
-          elseif attempts > 50 then -- 5 second timeout
-            timer:stop()
-            timer:close()
-            vim.notify("Timeout waiting for server to start", vim.log.levels.ERROR)
-          end
-        end)
-      )
-    end
-  else
-    -- Server already running
-    -- Add current file if different
-    if file then
-      server.add_file(file)
-    end
-
-    if opts.preview.open_browser then
-      M.open_browser()
+local function source_buffer(file)
+  if not file and vim.bo.buftype == "terminal" then
+    local original = terminal.get_source()
+    if original and vim.api.nvim_buf_is_valid(original.buf) then
+      return original.buf, vim.api.nvim_buf_get_name(original.buf), original
     end
   end
+  file = file or vim.api.nvim_buf_get_name(0)
+  local buf = vim.fn.bufnr(file)
+  if buf == -1 then buf = vim.fn.bufadd(file) end
+  if buf ~= 0 and not vim.api.nvim_buf_is_loaded(buf) then vim.fn.bufload(buf) end
+  if buf == 0 then buf = vim.api.nvim_get_current_buf() end
+  return buf, file, terminal.capture(buf)
 end
 
----Stop preview
+local function launch(file, target, layout, open_browser)
+  local buf, path, source = source_buffer(file)
+  latest_open = latest_open + 1
+  local request = latest_open
+  return desk.start(path, function(document)
+    if request ~= latest_open or not vim.api.nvim_buf_is_valid(buf) then return end
+    live.attach(buf, document, function(info)
+      if request ~= latest_open then return end
+      if target == "tui" then terminal.open(document, info, source, layout)
+      elseif open_browser then M.open_browser(desk.get_open_url(document, info)) end
+    end)
+  end)
+end
+
+function M.start(file, open_browser)
+  if open_browser == nil then open_browser = config.get().preview.open_browser end
+  return launch(file, config.get().preview.target, config.get().preview.layout, open_browser)
+end
+
+function M.web(file)
+  return launch(file, "web", nil, true)
+end
+
+function M.tui(file, layout)
+  return launch(file, "tui", layout or config.get().preview.layout, false)
+end
+
+function M.source()
+  terminal.source()
+end
+
 function M.stop()
-  server.stop()
+  latest_open = latest_open + 1
+  terminal.close()
+  live.stop_all()
+  desk.stop()
   M.browser_opened = false
 end
 
----Toggle preview
----@param file? string
 function M.toggle(file)
-  if server.is_running() then
-    M.stop()
-  else
-    M.start(file)
-  end
+  if config.get().preview.target == "tui" then
+    if terminal.is_visible() then terminal.source() else M.start(file) end
+  elseif desk.is_running() then M.stop()
+  else M.start(file) end
 end
 
----Get preview status
----@return table
 function M.status()
+  local document = require("mdmaid.session").get_document()
   return {
-    server_running = server.is_running(),
-    browser_opened = M.browser_opened,
-    url = server.get_url(),
-    file = server.get_current_file(),
-    port = server.port,
-    files = server.get_files(),
+    server_running = desk.is_running(), connected = desk.is_running(),
+    browser_opened = M.browser_opened, tui_opened = terminal.is_open(),
+    url = desk.get_url(), document_id = document and document.id,
+    file = desk.get_current_file(), files = desk.get_files(),
   }
 end
 

@@ -1,81 +1,61 @@
----@class MdmaidFontConfig
----@field family string Font family name
----@field path? string Local path to font file
----@field url? string External URL (Google Fonts, CDN)
----@field weight? number Font weight (default: 400)
----@field style? string Font style (default: "normal")
-
----@class MdmaidMermaidConfig
----@field theme? "default"|"dark"|"forest"|"neutral"|"base"
----@field themeVariables? table<string, string>
-
----@class MdmaidServerConfig
----@field port? number Server port (default: 3333)
----@field host? string Server host (default: "localhost")
----@field auto_start? boolean Start server on markdown open (default: true)
----@field auto_stop? boolean Stop server on nvim exit (default: true)
-
----@class MdmaidPreviewConfig
----@field open_browser? boolean Auto-open browser (default: true)
----@field browser? string Browser command (nil = system default)
-
----@class MdmaidRenderConfig
----@field fonts? MdmaidFontConfig[]
----@field mermaid? MdmaidMermaidConfig
----@field custom_css? string Custom CSS to inject
-
----@class MdmaidKeymapsConfig
----@field preview? string Toggle preview keymap (default: "<leader>mp")
----@field stop? string Stop server keymap (default: "<leader>ms")
----@field files? string File picker keymap (default: "<leader>mf")
----@field add? string Add file keymap (default: "<leader>ma")
-
 ---@class MdmaidConfig
----@field server? MdmaidServerConfig
----@field preview? MdmaidPreviewConfig
----@field render? MdmaidRenderConfig
----@field keymaps? MdmaidKeymapsConfig
----@field mdmaid_path? string Path to mdmaid CLI (default: "mdmaid")
+---@field mdmaid_path? string|string[] mdmaid-desk executable or argv prefix
+---@field desk? table Shared desk options: auto_start, workspace, root, timeout
+---@field preview? table Browser options: auto_start, open_browser, browser
+---@field keymaps? table|false Buffer-local keymaps
 
 local M = {}
 
----@type MdmaidConfig
 M.defaults = {
-  server = {
-    port = 3333,
-    host = "localhost",
+  mdmaid_path = "mdmaid-desk",
+  desk = {
     auto_start = true,
-    auto_stop = true,
+    timeout = 15000,
+    workspace = nil,
+    root = nil,
   },
   preview = {
+    target = "web",
+    layout = "split",
+    live = true,
+    sync_scroll = true,
+    debounce = 150,
+    auto_start = true,
     open_browser = true,
-    browser = nil, -- system default
-  },
-  render = {
-    fonts = {},
-    mermaid = {
-      theme = "default",
-    },
-    custom_css = nil,
+    browser = nil,
   },
   keymaps = {
     preview = "<leader>mp",
     stop = "<leader>ms",
     files = "<leader>mf",
     add = "<leader>ma",
+    web = "<leader>mw",
+    tui = "<leader>mt",
+    source = "<leader>me",
   },
-  mdmaid_path = "mdmaid",
 }
 
----@type MdmaidConfig
-M.options = {}
+M.options = vim.deepcopy(M.defaults)
 
----@param opts? MdmaidConfig
 function M.setup(opts)
-  M.options = vim.tbl_deep_extend("force", {}, M.defaults, opts or {})
+  opts = vim.deepcopy(opts or {})
+  -- Preserve the old automatic-preview preference during migration.
+  if opts.server then
+    opts.preview = opts.preview or {}
+    if opts.preview.auto_start == nil then
+      opts.preview.auto_start = opts.server.auto_start
+    end
+  end
+  M.options = vim.tbl_deep_extend("force", {}, M.defaults, opts)
+  if opts.server or opts.render then
+    vim.notify(
+      "mdmaid.nvim now uses shared mdmaid.desk. server and render options are retired; "
+        .. "server.auto_start maps to preview.auto_start. Configure rendering in mdmaid.desk.",
+      vim.log.levels.WARN
+    )
+  end
 end
 
----@return MdmaidConfig
 function M.get()
   return M.options
 end

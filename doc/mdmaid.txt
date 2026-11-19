@@ -1,129 +1,149 @@
-*mdmaid.txt*  Markdown + Mermaid preview for Neovim
+*mdmaid.txt*  Open Markdown + Mermaid in shared mdmaid.desk
 
 ==============================================================================
-CONTENTS                                                    *mdmaid-contents*
+INTRODUCTION                                            *mdmaid-introduction*
 
-    1. Introduction .......................... |mdmaid-introduction|
-    2. Requirements .......................... |mdmaid-requirements|
-    3. Installation .......................... |mdmaid-installation|
-    4. Configuration ......................... |mdmaid-configuration|
-    5. Commands .............................. |mdmaid-commands|
-    6. Keymaps ............................... |mdmaid-keymaps|
-    7. API ................................... |mdmaid-api|
+mdmaid.nvim registers saved Markdown sources in mdmaid.desk and opens their
+stable document routes. Desk owns rendering, the source watcher, and the
+persistent catalog. Whole-document previews update while typing without saving
+the source. No source-line/cursor mapping is required.
 
-==============================================================================
-1. INTRODUCTION                                          *mdmaid-introduction*
-
-mdmaid.nvim provides live preview of markdown files with first-class Mermaid
-diagram support. It spawns a local server that watches your files and
-automatically refreshes the browser preview on changes.
-
-==============================================================================
-2. REQUIREMENTS                                          *mdmaid-requirements*
-
-- Neovim >= 0.9.0
-- Node.js >= 18
-- mdmaid CLI: `npm install -g mdmaid`
-
-==============================================================================
-3. INSTALLATION                                          *mdmaid-installation*
-
-First, install the mdmaid CLI: >
-    npm install -g mdmaid
+Requirements: Neovim >= 0.9.0 and a current mdmaid-desk CLI.
+Install desk with: >
+    npm install --global mdmaid-desk
 <
-Then add the plugin to your Neovim config.
+The npm installation requires Node.js >= 22. Telescope is optional.
+Run :checkhealth mdmaid to check the CLI. Live buffers and direct TUI opening
+require a desk build with preview --document and tui --document --preview.
+Older desk versions support saved Web previews with preview.live=false.
 
-Using lazy.nvim: >lua
-    {
-      "OleksandrBesan/mdmaid.nvim",
-      ft = "markdown",
-      config = function()
-        require("mdmaid").setup()
-      end,
-    }
-<
 ==============================================================================
-4. CONFIGURATION                                        *mdmaid-configuration*
+CONFIGURATION                                           *mdmaid-configuration*
 
-Call `require("mdmaid").setup(opts)` with your options: >lua
-
+>lua
     require("mdmaid").setup({
-      server = {
-        port = 3333,
-        host = "localhost",
-        auto_start = true,
-        auto_stop = true,
+      mdmaid_path = "mdmaid-desk", -- executable or argv prefix
+      desk = {
+        auto_start = true,        -- start/reuse shared background daemon
+        timeout = 15000,          -- milliseconds per CLI operation
+        workspace = nil,         -- optional existing workspace ID
+        root = nil,              -- optional root, permits workspace creation
       },
       preview = {
+        target = "web",           -- or "tui"
+        layout = "split",         -- or "replace"
+        live = true,              -- include unsaved changes
+        sync_scroll = true,       -- follow source scrolling in split TUI
+        debounce = 150,           -- buffer update delay in milliseconds
+        auto_start = true,        -- automatically preview saved Markdown
         open_browser = true,
-        browser = nil,
-      },
-      render = {
-        fonts = {},
-        mermaid = { theme = "default" },
-        custom_css = nil,
+        browser = nil,            -- executable/argv prefix or system default
       },
       keymaps = {
         preview = "<leader>mp",
         stop = "<leader>ms",
+        files = "<leader>mf",
+        add = "<leader>ma",
+        web = "<leader>mw",
+        tui = "<leader>mt",
+        source = "<leader>me",
       },
-      mdmaid_path = "mdmaid",
     })
 <
-==============================================================================
-5. COMMANDS                                                  *mdmaid-commands*
+Set keymaps=false to disable mappings. With desk.auto_start=false, start the
+shared service yourself: >
+    mdmaid-desk daemon start
+<
+By default, reuse the deepest registered workspace containing the canonical
+source path. Otherwise register the Git worktree root, or source directory
+outside Git, with a deterministic workspace ID. Existing artifact-root policies
+remain in force. Set desk.workspace to select an existing ID; also set desk.root
+to create a missing ID. Set desk.root alone to select/create that exact root.
 
-                                                            *:MdmaidPreview*
-:MdmaidPreview          Start the preview server and open browser.
+The .md file must exist before first registration. Once previewing, Neovim
+streams unsaved contents to a temporary desk preview tied to that document.
+Disk content and shared saved revisions remain intact. Drafts live in memory
+and are released on Stop, buffer deletion, exit, or disconnection (2 MiB limit).
+With preview.live=false, updates follow disk saves, including atomic saves.
 
-                                                               *:MdmaidStop*
-:MdmaidStop             Stop the preview server.
-
-                                                            *:MdmaidRestart*
-:MdmaidRestart          Restart the preview server.
-
-                                                               *:MdmaidOpen*
-:MdmaidOpen             Open browser to the preview URL.
-
-                                                             *:MdmaidStatus*
-:MdmaidStatus           Show current server status.
-
-==============================================================================
-6. KEYMAPS                                                    *mdmaid-keymaps*
-
-Default keymaps (active in markdown buffers):
-
-    <leader>mp          Toggle preview
-    <leader>ms          Stop server
-
-Set keymaps to `false` in config to disable.
+Split TUI views follow the source by proportional document scroll progress.
+Wrapped paragraphs are included on Neovim 0.10+. This requires live previews
+and a desk service with preview-scroll-v1. Set preview.sync_scroll=false to
+disable. Web and replacement views do not synchronize scrolling.
 
 ==============================================================================
-7. API                                                            *mdmaid-api*
+COMMANDS                                                    *mdmaid-commands*
 
-                                                           *mdmaid.setup()*
-mdmaid.setup({opts})    Configure the plugin. See |mdmaid-configuration|.
-
-                                                    *mdmaid.preview.start()*
-mdmaid.preview.start({file})
-                        Start preview for {file} or current buffer.
-
-                                                     *mdmaid.preview.stop()*
-mdmaid.preview.stop()   Stop the preview.
-
-                                                   *mdmaid.preview.toggle()*
-mdmaid.preview.toggle() Toggle preview on/off.
-
-                                                     *mdmaid.server.start()*
-mdmaid.server.start({file})
-                        Start server for {file}.
-
-                                                      *mdmaid.server.stop()*
-mdmaid.server.stop()    Stop the server.
-
-                                                *mdmaid.server.is_running()*
-mdmaid.server.is_running()
-                        Returns `true` if server is running.
+:MdmaidPreview                                              *:MdmaidPreview*
+    Register the current buffer as a live source and open its stable route.
+:MdmaidOpen                                                    *:MdmaidOpen*
+    Register/open the current buffer even with preview.open_browser=false.
+:MdmaidWeb                                                      *:MdmaidWeb*
+    Open the whole document in Web. MdmaidOpen is its compatibility alias.
+:MdmaidTui                                                      *:MdmaidTui*
+    Open the whole document beside the source in a terminal buffer.
+:MdmaidTui!                                                    *:MdmaidTui!*
+    Use the current window instead. Keep the source buffer, including edits.
+:MdmaidSource                                                *:MdmaidSource*
+    Return to the source buffer and preserve its cursor/view.
+:MdmaidStop                                                    *:MdmaidStop*
+    Disconnect this client and cancel pending work. Leave shared desk running.
+:MdmaidRestart                                              *:MdmaidRestart*
+    Reconnect this client and register the last active document.
+:MdmaidFiles                                                  *:MdmaidFiles*
+    Pick a tracked document (Telescope or vim.ui.select).
+:MdmaidAdd                                                      *:MdmaidAdd*
+    Register current file without opening a browser.
+:MdmaidRemove                                                *:MdmaidRemove*
+    Remove current file from this client's list. Keep it in the desk catalog.
+:MdmaidStatus                                                *:MdmaidStatus*
+    Show client state, stable document ID, and URL without authentication token.
 
 ==============================================================================
+KEYMAPS                                                      *mdmaid-keymaps*
+
+Markdown-buffer defaults:
+    <leader>mp   Toggle preview/client connection
+    <leader>ms   Disconnect client
+    <leader>mf   Pick document
+    <leader>ma   Register current file
+    <leader>mw   Open Web preview
+    <leader>mt   Open TUI preview
+    <leader>me   Return to source (also available in the TUI buffer)
+
+TUI: q exits and returns to source. MdmaidSource returns to editing while
+keeping the TUI available. Save and reopen saved content to submit reviews
+or feedback; unsaved previews are reading views.
+
+Telescope: <CR> opens; <C-d> removes a file from this client's list.
+
+==============================================================================
+API                                                              *mdmaid-api*
+
+require("mdmaid").setup(opts)                             *mdmaid.setup()*
+require("mdmaid").preview.start(file)             *mdmaid.preview.start()*
+    Register file or current buffer, then open its document after success.
+require("mdmaid").preview.stop()                   *mdmaid.preview.stop()*
+    Cancel pending operations and disconnect this client.
+require("mdmaid").preview.toggle(file)           *mdmaid.preview.toggle()*
+require("mdmaid").preview.status()               *mdmaid.preview.status()*
+    Client status including document_id, file, files, and token-free url.
+
+require("mdmaid").desk
+    Shared desk CLI client. server and require("mdmaid.server") are compatibility
+    aliases. is_running() describes this client's activity, not daemon health.
+
+==============================================================================
+MIGRATION                                                *mdmaid-migration*
+
+Install mdmaid-desk and update an explicit mdmaid_path="mdmaid" override.
+The private mdmaid serve process, dynamic per-instance ports, old HTTP API,
+temporary session files, and process cleanup are removed.
+
+server.auto_start maps to preview.auto_start. Other server options and render
+options are retired; configure rendering in mdmaid.desk. Stop, Remove, and
+Neovim exit never stop the shared daemon or delete desk documents.
+
+Registration/opening is passive and does not request workflow approval.
+
 vim:tw=78:ts=8:ft=help:norl:

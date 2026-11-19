@@ -1,10 +1,10 @@
-local server = require("mdmaid.server")
+local desk = require("mdmaid.desk")
 
 local M = {}
 
 ---Open file picker using Telescope if available, otherwise vim.ui.select
 function M.pick_file()
-  local files = server.get_files()
+  local files = desk.get_files()
 
   if #files == 0 then
     vim.notify("No files tracked. Open a markdown file first.", vim.log.levels.INFO)
@@ -29,7 +29,7 @@ function M.telescope_picker(files)
   local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
 
-  local current_file = server.get_current_file()
+  local current_file = desk.get_current_file()
 
   -- Create entries with display formatting
   local entries = {}
@@ -67,7 +67,7 @@ function M.telescope_picker(files)
           actions.close(prompt_bufnr)
           local selection = action_state.get_selected_entry()
           if selection then
-            server.switch_file(selection.value)
+            desk.switch_file(selection.value)
           end
         end)
 
@@ -75,7 +75,7 @@ function M.telescope_picker(files)
         map("i", "<C-d>", function()
           local selection = action_state.get_selected_entry()
           if selection then
-            server.remove_file(selection.value)
+            desk.remove_file(selection.value)
             vim.notify("Removed: " .. vim.fn.fnamemodify(selection.value, ":t"), vim.log.levels.INFO)
             -- Refresh picker
             actions.close(prompt_bufnr)
@@ -94,7 +94,7 @@ end
 ---Native vim.ui.select picker
 ---@param files string[]
 function M.native_picker(files)
-  local current_file = server.get_current_file()
+  local current_file = desk.get_current_file()
 
   local items = {}
   for _, file in ipairs(files) do
@@ -113,7 +113,7 @@ function M.native_picker(files)
     end,
   }, function(choice)
     if choice then
-      server.switch_file(choice.file)
+      desk.switch_file(choice.file)
     end
   end)
 end
@@ -126,13 +126,9 @@ function M.add_current()
     return
   end
 
-  if not file:match("%.md$") then
-    vim.notify("Not a markdown file", vim.log.levels.WARN)
-    return
-  end
-
-  server.add_file(file)
-  vim.notify("Added: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
+  desk.start(file, function()
+    vim.notify("Added: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
+  end, false)
 end
 
 ---Remove current buffer from tracked files
@@ -142,7 +138,7 @@ function M.remove_current()
     return
   end
 
-  server.remove_file(file)
+  desk.remove_file(file)
   vim.notify("Removed: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
 end
 
